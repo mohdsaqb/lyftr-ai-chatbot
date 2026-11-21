@@ -96,10 +96,6 @@ Run the backend tests from the project root after installing the Python dependen
 PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests
 ```
 
-## Setup Used: your editor and AI tools
-
-I used OpenAI Codex to edit the code and run tests.
-
-## Bonus features (if any)
+## Bonus features
 
 Use **System prompt** before your first message to set instructions for the whole conversation, such as “Answer in one sentence.”
