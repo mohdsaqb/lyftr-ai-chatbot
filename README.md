@@ -1,177 +1,105 @@
 # Lyftr AI Chatbot
 
-A React chat app that remembers earlier messages in the same conversation. FastAPI stores the conversation in SQLite. LiteLLM calls Groq, switches keys if a call fails, and caches replies. Each assistant reply shows its source, model, latency, and token counts.
+Lyftr is a chat app that remembers earlier messages in a conversation. Each reply shows which model answered, how long it took, and how many tokens it used.
+
+The frontend uses React and Vite. The Python backend uses FastAPI, LiteLLM to call Groq, and SQLite for chat history.
 
 ## Live URLs
 
-| Submission item | Status |
-| --- | --- |
-| Vercel frontend | Awaiting verified public URL |
-| Render backend | Awaiting verified public URL |
-| Public GitHub repository | Awaiting confirmed repository URL |
-| Narrated demo | Video link pending. |
+[Open the chatbot](https://frontend-nine-azure-vflfvpvcat.vercel.app/) · [Check API health](https://lyftr-chat-api-qemo.onrender.com/health)
 
-Add the real links here after testing the public app in a signed-out browser.
+To try a multi-turn chat, send “My dog’s name is Pepper.” Then ask “What’s my dog’s name?” Refresh the page to start a new conversation.
 
 ## Run locally: with Docker and without
 
-Run the commands from the project root in Bash or Zsh. Copy the example once, then edit the private `.env` file and enter two different Groq keys. Use models available to your Groq account.
+From the project root, copy the settings file once. In `.env`, set `LLM_API_KEYS` to two different Groq keys separated by a comma. Set `GROQ_MODEL_1` and `GROQ_MODEL_2` to models your account can use.
 
 ```sh
 cp -n .env.example .env
 ```
 
-### With Docker
-
-Start Docker Desktop or Docker Engine with Compose installed.
+**With Docker**, start both services with one command. Open [the local chatbot](http://localhost:3000). Run `docker compose down` to stop it. The named volume keeps your chat history between runs.
 
 ```sh
-docker compose config --quiet
-make up
-docker compose ps
+docker compose up --build -d
 ```
 
-Open http://localhost:3000 and send a message. Check backend readiness at http://localhost:8000/health. Run `make down` to stop both services. The named volume `chat_data` keeps the database between runs.
-
-### Without Docker
-
-Use Python 3.12 and Node.js 22.12 or later in the 22.x series. In terminal one:
+**Without Docker**, use Python 3.12 and Node.js 22.12 or later in the 22.x series. Start the backend in one terminal:
 
 ```sh
 python3.12 -m venv .venv
 . .venv/bin/activate
-python -m pip install -r backend/requirements.txt
+pip install -r backend/requirements.txt
 set -a
 . ./.env
 set +a
-export DATABASE_URL=sqlite:///./app.db
-uvicorn app.main:app --app-dir backend --port "${BACKEND_PORT:-8000}"
+DATABASE_URL=sqlite:///./app.db uvicorn app.main:app --app-dir backend --port "$BACKEND_PORT"
 ```
 
-In terminal two, also starting from the project root:
+In a second terminal, start the frontend from the project root:
 
 ```sh
 . ./.env
 cd frontend
 npm ci
-VITE_API_BASE_URL="$VITE_API_BASE_URL" npm run dev
+VITE_API_BASE_URL="$VITE_API_BASE_URL" npm run dev -- --port "$FRONTEND_PORT"
 ```
 
-### Prepare the GitHub repository
+### Deployment
 
-Keep `backend/`, `frontend/`, `docker-compose.yml`, `Makefile`, `render.yaml`, `.env.example`, `.gitignore`, and `README.md` at the repository root. The backend tests are in `backend/tests/`. Commit the frontend lockfile so local and hosted builds use the same packages.
-
-For a new repository, run `git init -b main`. Stage and check the submission before pushing to your public GitHub repository:
-
-```sh
-git add .gitignore .env.example backend frontend docker-compose.yml Makefile render.yaml README.md
-git diff --cached --name-only
-git check-ignore .env
-git ls-files -- .env
-git grep --cached -lE 'gsk_[[:alnum:]_-]{20,}' -- .
-git log --all -G'gsk_[[:alnum:]_-]{20,}' --format='%h' --name-only
-```
-
-The ignore check should print `.env`. The tracked-file and key searches should print nothing. The searches show filenames only. If a real key appears in Git history, rotate it in Groq and clean the history before publishing.
-
-For a first upload, create an empty public repository in GitHub and copy its HTTPS clone URL. After reviewing the staged files, run the following commands in the new local repository. Paste the URL when prompted:
-
-```sh
-git commit -m "Prepare Lyftr AI assignment for submission"
-printf 'GitHub repository clone URL: '
-read -r repo_url
-git remote add origin "$repo_url"
-git push -u origin main
-```
-
-### Deploy the frontend on Vercel and the backend on Render
-
-1. **Vercel:** Import the GitHub repository. Select `frontend` as the root directory, **Vite** as the framework, Node **22.x**, `npm ci` as the install command, `npm run build` as the build command, and `dist` as the output directory. Create the project and copy its assigned production origin. The first build gives you the frontend address to enter in Render. [Vercel Vite guide](https://vercel.com/docs/frameworks/frontend/vite)
-2. **Render:** Choose **New → Blueprint**, select the same repository and review `render.yaml`. It builds the backend Dockerfile, starts FastAPI on port 8000, checks `/health`, and mounts a 1 GB persistent disk at `/data`. Render requires a paid service for a persistent disk. Review the plan and disk cost before applying. [Render Blueprints](https://render.com/docs/blueprint-spec) · [Persistent disks](https://render.com/docs/disks)
-3. **Render environment:** Enter the two Groq keys, both model names, and the Vercel production origin when prompted. Apply the Blueprint. Once the service starts, copy its assigned HTTPS base URL and check its `/health` endpoint.
-4. **Connect Vercel:** Under the frontend project's environment variables, set `VITE_API_BASE_URL` for **Production** to the Render base URL. Redeploy the frontend so Vite includes it in the build. Send a message from the production domain. If you change that domain, update `ALLOWED_ORIGINS` on Render and redeploy the backend.
-5. **Verify persistence:** Send a successful chat with the terminal commands below. Save its session ID, restart the Render service, and request that session's messages again. The saved messages and metadata should match.
-
-### Production environment variables
-
-| Set on | Variable | Value and purpose |
-| --- | --- | --- |
-| Render | `LLM_API_KEYS` | Two distinct private Groq keys separated by a comma. The first is `key_1` and the second is `key_2`. |
-| Render | `GROQ_MODEL_1`, `GROQ_MODEL_2` | LiteLLM model IDs for the primary and backup deployments. The examples in `.env.example` use the `groq/` prefix. |
-| Render | `DATABASE_URL` | The Blueprint sets `sqlite:////data/app.db`. The four slashes point to the absolute path on the persistent disk. |
-| Render | `ALLOWED_ORIGINS` | Paste the actual Vercel production origin, including `https://`. Omit paths and trailing slashes. Separate additional trusted origins with commas. FastAPI reads this setting on startup. |
-| Render | `ENABLE_FAILURE_SIMULATION` | The Blueprint sets `true` so the evaluator can test both keys with a request header. |
-| Render | `PORT` | The Blueprint sets `8000`, matching Uvicorn's port in the backend image. |
-| Vercel | `VITE_API_BASE_URL` | The public HTTPS base URL of the Render backend. The browser app appends `/chat`. Keep Groq keys on Render. |
-
-`BACKEND_PORT` and `FRONTEND_PORT` configure local Compose ports. Their defaults are 8000 and 3000.
+- **Render backend.** Create a Blueprint from [render.yaml](render.yaml). Set the two keys and model names as above. Set `ALLOWED_ORIGINS` to the exact Vercel origin, including `https://` and without a trailing slash. The Blueprint sets `PORT=8000` and `ENABLE_FAILURE_SIMULATION=true` for the checks below.
+- **SQLite storage.** The Blueprint uses a paid Render service with a persistent disk mounted at `/data`. Its `DATABASE_URL` is `sqlite:////data/app.db`, so history survives restarts. [Render disk documentation](https://render.com/docs/disks)
+- **Vercel frontend.** Import the repository, select `frontend` as the root and **Vite** as the framework. Set `VITE_API_BASE_URL` to the Render backend URL and deploy. Rebuild the frontend if this URL changes. Keep both Groq keys on the backend.
 
 ## Design decisions: key fallback, caching, SQLite session storage
 
-- **Fallback.** Both Groq deployments share the LiteLLM alias `chat-model`. The router tries `key_1` first. On failure it can call `key_2`. Reply metadata records the answering key ID and the number of failed attempts.
-- **Cache.** LiteLLM looks up the shared model alias and the full message list, including the system prompt. This lets two new sessions share an identical first reply. A hit returns the original reply, model, and usage with `key_id: null`. The in-memory cache resets when the backend restarts. A failure-simulation request skips cache reads so you can exercise the provider path.
-- **Sessions.** Each page load creates a fresh session ID. The browser sends only the new message and any initial system prompt. The backend reads that session's history and saves both sides of a successful turn in one transaction. Failed turns add nothing. History is returned oldest first.
+- **Key fallback.** Both Groq deployments use one LiteLLM alias, `chat-model`. If the primary call fails, the router tries the backup. The API reports which key answered.
+- **Caching.** LiteLLM matches the full conversation, including the system prompt. Two new sessions with the same first message can share a reply. The cache is in memory and clears when the backend restarts.
+- **Session storage.** SQLite saves the user message and assistant reply together after a successful turn. The history endpoint returns them oldest first. Failed turns add no messages.
 
 ## Verification: how to see failover, cache hits and per-message token usage
 
-Use one terminal for the following commands. For local testing use the default `API` below. For deployment testing, set `API` to the actual Render HTTPS base URL first. The `chat` helper fixes the message text for the run, prints the HTTP status, and accepts an optional failure header.
+Run these commands in one terminal against the local backend. To test the hosted API, set `API=https://lyftr-chat-api-qemo.onrender.com` instead. The helper sends the same message to a different session each time.
 
 ```sh
-API=${API:-http://localhost:8000}
-API=${API%/}
+API=http://localhost:8000
 run="demo-$(date +%s)"
 chat() {
-  session=$1
+  id="$run-$1"
   shift
   curl -sS -w '\nHTTP %{http_code}\n' "$API/chat" \
     -H 'Content-Type: application/json' "$@" \
-    -d "{\"session_id\":\"$session\",\"message\":\"Reply with the code $run.\"}"
+    -d "{\"session_id\":\"$id\",\"message\":\"Repeat $run.\"}"
 }
 
-curl -fsS "$API/health"
-chat "$run-first"
-chat "$run-cache"
-chat "$run-backup" -H 'X-Simulate-Failure: key_1=429'
-chat "$run-backup500" -H 'X-Simulate-Failure: key_1=500'
-chat "$run-failed" -H 'X-Simulate-Failure: key_1=429,key_2=500'
-chat "$run-failed" -H 'X-Simulate-Failure: *=429'
-curl -fsS "$API/sessions/$run-first/messages"
-curl -sS -w '\nHTTP %{http_code}\n' "$API/sessions/$run-failed/messages"
-curl -sS -w '\nHTTP %{http_code}\n' "$API/chat" \
-  -H 'Content-Type: application/json' -d '{"session_id":"validation","message":" "}'
+curl -sS "$API/health"
+chat first
+chat cached
+chat backup -H 'X-Simulate-Failure: key_1=429'
+chat failed -H 'X-Simulate-Failure: *=429'
+curl -sS "$API/sessions/$run-first/messages"
 ```
 
-| Check | Expected result |
+| Request | What to look for |
 | --- | --- |
-| Health | HTTP 200 with `status: ok`, `keys_configured: 2`, and `cache_enabled: true`. |
-| First and cached replies | `LIVE_INFERENCE` then `LLM_CACHE`. Compare identical text and token counts. The hit should be faster, with a null key ID and zero fallback attempts. |
-| Primary failure | HTTP 200 with a real reply from `key_2`, `LIVE_INFERENCE`, and one fallback attempt. |
-| Both keys fail | HTTP 503 with `{"detail":"all providers unavailable"}`. |
-| History and validation | The successful session contains a user message then an assistant reply. The failed session returns 404. The blank message returns 422. |
+| `GET /health` | `status` is `ok`, two keys are configured, and caching is enabled. |
+| First and cached chats | The first returns `LIVE_INFERENCE`. The second returns `LLM_CACHE` with the same reply and token counts, and a null `key_id`. |
+| Primary key fails | HTTP 200 with `key_id` set to `key_2` and `fallback_attempts` set to `1`. You can also try `key_1=500`. |
+| Both keys fail | HTTP 503 with `all providers unavailable`. The simulation header works when `ENABLE_FAILURE_SIMULATION=true`. |
+| Session history | The user message appears first, followed by the assistant reply and its metadata. |
 
-In the browser, send a follow-up and inspect the source, model, latency, input tokens, and output tokens under each reply. Input tokens include that request's context. Output tokens count only its reply.
+The chatbot shows **input tokens** for the prompt and conversation sent to the model, and **output tokens** for the reply. The API returns both in `metadata`.
 
-With the Python virtual environment installed, run the local tests and then check a running backend. The second command makes real Groq calls:
-
-```sh
-PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -v
-.venv/bin/python backend/tests/verify_running.py --base-url "$API"
-```
-
-To check production CORS, set `WEB` to the actual Vercel production origin and run:
+Run the backend tests from the project root after installing the Python dependencies:
 
 ```sh
-curl -si -X OPTIONS "$API/chat" -H "Origin: $WEB" \
-  -H 'Access-Control-Request-Method: POST' \
-  -H 'Access-Control-Request-Headers: content-type'
+PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests
 ```
-
-Expect HTTP 200 and an `access-control-allow-origin` header matching `WEB`.
 
 ## Setup Used: your editor and AI tools
 
-I used OpenAI Codex to edit the project, run tests, and prepare the documentation. The local setup uses Python 3.12, Node.js 22, npm, and Docker Compose.
+I used OpenAI Codex to edit the code and run tests.
 
 ## Bonus features (if any)
 
-The optional system prompt lets you set instructions before the first message. Its value stays with the session so you can guide later replies without retyping it.
+Use **System prompt** before your first message to set instructions for the whole conversation, such as “Answer in one sentence.”
