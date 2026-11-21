@@ -20,30 +20,37 @@ class GatewayTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.enterContext(patch.dict(os.environ, {
             "LLM_API_KEYS": "test-first,test-second",
-            "GROQ_MODEL_1": "groq/llama-3.1-8b-instant",
-            "GROQ_MODEL_2": "groq/llama-3.3-70b-versatile",
+            "GROQ_MODEL_1": "groq/openai/gpt-oss-20b",
+            "GROQ_MODEL_2": "groq/openai/gpt-oss-120b",
             "DATABASE_URL": f"sqlite:///{Path(directory.name) / 'app.db'}",
             "ENABLE_FAILURE_SIMULATION": "true",
         }))
         self.calls = []
         self.primary_status = 200
+        self.backup_status = 200
 
         async def send(client, request, **kwargs):
-            self.assertEqual(request.url.host, "api.groq.com")
+            self.assertEqual(str(request.url), "https://api.groq.com/openai/v1/chat/completions")
             key = request.headers["authorization"]
             self.calls.append(key)
             if self.primary_status != 200 and key == "Bearer test-first":
                 return httpx.Response(self.primary_status, request=request, json={
                     "error": {"message": "quota exhausted", "type": "insufficient_quota"}
                 })
-            return httpx.Response(200, request=request, json={
+            if self.backup_status != 200 and key == "Bearer test-second":
+                return httpx.Response(self.backup_status, request=request, json={
+                    "error": {"message": "invalid API key", "code": "invalid_api_key"}
+                })
+            body = {
                 "id": "chat-test", "object": "chat.completion", "created": int(time.time()),
-                "service_tier": "on_demand",
                 "model": json.loads(request.content)["model"],
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": "Paris"},
                              "finish_reason": "stop"}],
                 "usage": {"prompt_tokens": 27, "completion_tokens": 3, "total_tokens": 30},
-            })
+            }
+            if key == "Bearer test-first":
+                body["service_tier"] = "on_demand"
+            return httpx.Response(200, request=request, json=body)
 
         self.enterContext(patch.object(httpx.AsyncClient, "send", send))
         self.client = self.enterContext(TestClient(app))
@@ -61,7 +68,7 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(live["metadata"]["key_id"], "key_1")
         self.assertEqual(cached["metadata"], {
             "resolution_source": "LLM_CACHE", "key_id": None, "fallback_attempts": 0,
-            "model": "groq/llama-3.1-8b-instant", "input_tokens": 27, "output_tokens": 3,
+            "model": "groq/openai/gpt-oss-20b", "input_tokens": 27, "output_tokens": 3,
             "latency_ms": cached["metadata"]["latency_ms"],
         })
         self.assertEqual(live["reply"], cached["reply"])
@@ -86,14 +93,32 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(self.post("fresh", "New").json()["metadata"]["key_id"], "key_1")
 
     def test_provider_status_fallback(self):
-        for status in (429, 500, 503):
+        for status in (401, 403, 429, 500, 502, 503):
             self.primary_status = status
-            meta = self.post(str(status), str(status)).json()["metadata"]
+            result = self.post(str(status), str(status))
+            self.assertEqual(result.status_code, 200, f"primary HTTP {status}")
+            self.assertEqual(result.json()["reply"], "Paris")
+            meta = result.json()["metadata"]
             self.assertEqual(self.calls[-2:], ["Bearer test-first", "Bearer test-second"])
             self.assertEqual((meta["key_id"], meta["fallback_attempts"]), ("key_2", 1))
-            self.assertEqual(meta["model"], "groq/llama-3.3-70b-versatile")
+            self.assertEqual(meta["model"], "groq/openai/gpt-oss-120b")
             calls = len(self.calls)
             cached = self.post(f"repeat-{status}", str(status)).json()["metadata"]
             self.assertEqual((cached["model"], cached["key_id"], cached["fallback_attempts"]),
                              (meta["model"], None, 0))
             self.assertEqual(len(self.calls), calls)
+
+    def test_rejected_backup_is_not_saved(self):
+        for status in (401, 403, 404, 429, 500):
+            with self.subTest(status=status), self.assertLogs("app.gateway", level="WARNING") as logs:
+                self.calls.clear()
+                self.backup_status = status
+                response = self.post("rejected", header="key_1=429")
+                self.assertEqual(self.calls, ["Bearer test-second"])
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(response.json(), {"detail": "all providers unavailable"})
+                self.assertEqual(self.client.get("/sessions/rejected/messages").status_code, 404)
+                output = "\n".join(logs.output)
+                self.assertIn("attempts=key_1,key_2 simulated=key_1", output)
+                self.assertIn(f"sdk_status={status}", output)
+                self.assertNotIn("test-second", output)

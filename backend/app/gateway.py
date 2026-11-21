@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -8,6 +9,7 @@ from litellm.caching.caching import Cache
 from litellm.integrations.custom_logger import CustomLogger
 
 MODEL_ALIAS = "chat-model"
+logger = logging.getLogger(__name__)
 attempt_context = ContextVar("attempt_context", default=None)
 
 
@@ -37,7 +39,13 @@ def open_gateway():
         deployments.append({
             "model_name": MODEL_ALIAS,
             "model_info": {"id": f"key_{index}"},
-            "litellm_params": {"model": f"groq/{model}", "api_key": key, "order": index},
+            # The native adapter in LiteLLM 1.106.0 fails on replies without service_tier.
+            "litellm_params": {
+                "model": f"openai/{model}",
+                "api_base": "https://api.groq.com/openai/v1",
+                "api_key": key,
+                "order": index,
+            },
         })
     router = Router(model_list=deployments, num_retries=0, max_fallbacks=1,
                     disable_cooldowns=True, timeout=30)
@@ -65,21 +73,32 @@ async def complete(router, cache, messages, failures):
     token = attempt_context.set((failures, attempts))
     try:
         response = await router.acompletion(**lookup, caching=False)
+    except Exception as exc:
+        logger.warning(
+            "Chat routing failed: attempts=%s simulated=%s error=%s sdk_status=%s",
+            ",".join(attempts) or "none", ",".join(failures) or "none",
+            type(exc).__name__, getattr(exc, "status_code", None),
+        )
+        raise
     finally:
         attempt_context.reset(token)
-    reply = response.choices[0].message.content
+    reply = response.choices[0].message.content if response.choices else None
     model = response.model
     if not isinstance(reply, str) or not reply.strip() or not model:
+        logger.warning("Incomplete provider reply: attempts=%s", ",".join(attempts))
         raise ValueError("Incomplete provider response")
+    tokens = getattr(response, "usage", None)
     usage = {
         "model": model if model.startswith("groq/") else f"groq/{model}",
-        "input_tokens": response.usage.prompt_tokens,
-        "output_tokens": response.usage.completion_tokens,
+        "input_tokens": getattr(tokens, "prompt_tokens", None),
+        "output_tokens": getattr(tokens, "completion_tokens", None),
     }
     if not all(type(usage[name]) is int and usage[name] >= 0
                for name in ("input_tokens", "output_tokens")):
+        logger.warning("Missing provider token counts: attempts=%s", ",".join(attempts))
         raise ValueError("Missing provider token counts")
     if not attempts:
+        logger.warning("Response received without a recorded deployment attempt")
         raise ValueError("Missing deployment information")
     cache.add_cache({"reply": reply, "usage": usage}, **lookup)
     return reply, {

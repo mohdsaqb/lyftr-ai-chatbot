@@ -9,7 +9,7 @@ A React chat app that remembers earlier messages in the same conversation. FastA
 | Vercel frontend | Awaiting verified public URL |
 | Render backend | Awaiting verified public URL |
 | Public GitHub repository | Awaiting confirmed repository URL |
-| Narrated demo | [Recording script](DEMO.md) ready. Video link pending. |
+| Narrated demo | Video link pending. |
 
 Add the real links here after testing the public app in a signed-out browser.
 
@@ -59,12 +59,12 @@ VITE_API_BASE_URL="$VITE_API_BASE_URL" npm run dev
 
 ### Prepare the GitHub repository
 
-Keep `backend/`, `frontend/`, `docker-compose.yml`, `Makefile`, `render.yaml`, `.env.example`, `.gitignore`, `README.md`, and `DEMO.md` at the repository root. The backend tests are in `backend/tests/`. Commit the frontend lockfile so local and hosted builds use the same packages.
+Keep `backend/`, `frontend/`, `docker-compose.yml`, `Makefile`, `render.yaml`, `.env.example`, `.gitignore`, and `README.md` at the repository root. The backend tests are in `backend/tests/`. Commit the frontend lockfile so local and hosted builds use the same packages.
 
 For a new repository, run `git init -b main`. Stage and check the submission before pushing to your public GitHub repository:
 
 ```sh
-git add .gitignore .env.example backend frontend docker-compose.yml Makefile render.yaml README.md DEMO.md
+git add .gitignore .env.example backend frontend docker-compose.yml Makefile render.yaml README.md
 git diff --cached --name-only
 git check-ignore .env
 git ls-files -- .env
@@ -166,7 +166,7 @@ curl -si -X OPTIONS "$API/chat" -H "Origin: $WEB" \
   -H 'Access-Control-Request-Headers: content-type'
 ```
 
-Expect HTTP 200 and an `access-control-allow-origin` header matching `WEB`. The [demo script](DEMO.md) uses these same endpoints.
+Expect HTTP 200 and an `access-control-allow-origin` header matching `WEB`.
 
 ## Setup Used: your editor and AI tools
 
